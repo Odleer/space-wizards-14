@@ -13,6 +13,7 @@ using Content.Shared.CCVar;
 using Content.Shared.Clothing;
 using Content.Shared.GameTicking;
 using Content.Shared.Guidebook;
+using Content.Shared.Localizations;
 using Content.Shared.Humanoid;
 using Content.Shared.Humanoid.Markings;
 using Content.Shared.Humanoid.Prototypes;
@@ -225,6 +226,28 @@ namespace Content.Client.Lobby.UI
 
             SpeciesButton.OnItemSelected += args =>
             {
+                // Block Vox selection if overall playtime is less than 5 hours
+                try
+                {
+                    var selectedSpecies = _species[args.Id];
+                    var overall = _requirements.FetchOverallPlaytime();
+                    var voxRestricted = string.Equals(selectedSpecies.ID, "Vox", StringComparison.OrdinalIgnoreCase)
+                                        && overall < TimeSpan.FromHours(5);
+
+                    if (voxRestricted)
+                    {
+                        // Show a helpful tooltip with remaining time, and do not change selection
+                        var remaining = TimeSpan.FromHours(5) - overall;
+                        var formatted = ContentLocalizationManager.FormatPlaytime(remaining);
+                        SpeciesButton.ToolTip = Loc.GetString("role-timer-overall-insufficient", ("time", formatted));
+                        return;
+                    }
+                }
+                catch
+                {
+                    // If anything goes wrong, fall back to normal behavior.
+                }
+
                 SpeciesButton.SelectId(args.Id);
                 SetSpecies(_species[args.Id].ID);
                 UpdateHairPickers();
@@ -612,6 +635,21 @@ namespace Content.Client.Lobby.UI
             for (var i = 0; i < _species.Count; i++)
             {
                 var name = Loc.GetString(_species[i].Name);
+
+                // Mirror job requirement UX: mark Vox as locked if overall playtime < 5h
+                var overall = _requirements.FetchOverallPlaytime();
+                var isVox = string.Equals(_species[i].ID, "Vox", StringComparison.OrdinalIgnoreCase);
+                var voxLocked = isVox && overall < TimeSpan.FromHours(5);
+
+                if (voxLocked)
+                {
+                    name = $"{name} ({Loc.GetString("role-timer-locked")})";
+
+                    var remaining = TimeSpan.FromHours(5) - overall;
+                    var formatted = ContentLocalizationManager.FormatPlaytime(remaining);
+                    SpeciesButton.ToolTip = Loc.GetString("role-timer-overall-insufficient", ("time", formatted));
+                }
+
                 SpeciesButton.AddItem(name, i);
 
                 if (Profile?.Species.Equals(_species[i].ID) == true)
@@ -1545,6 +1583,19 @@ namespace Content.Client.Lobby.UI
         private void RandomizeEverything()
         {
             Profile = HumanoidCharacterProfile.Random();
+            // Prevent randomizer from choosing Vox if the player has less than 5 hours overall playtime
+            try
+            {
+                var overall = _requirements.FetchOverallPlaytime();
+                if (Profile != null && string.Equals(Profile.Species, "Vox", StringComparison.OrdinalIgnoreCase) && overall < TimeSpan.FromHours(5))
+                {
+                    Profile = Profile.WithSpecies(SharedHumanoidAppearanceSystem.DefaultSpecies);
+                }
+            }
+            catch
+            {
+                // ignore and proceed
+            }
             SetProfile(Profile, CharacterSlot);
             SetDirty();
         }
